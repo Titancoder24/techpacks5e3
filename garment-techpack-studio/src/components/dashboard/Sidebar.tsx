@@ -3,13 +3,14 @@ import { NavLink } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Sparkles, BookOpen, Users, Settings,
-  ChevronLeft, ChevronRight, Flame
+  ChevronLeft, ChevronRight, Flame, Brain
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
   { to: '/admin/overview', label: 'Overview', icon: LayoutDashboard },
   { to: '/admin/generator', label: 'AI Tech Pack Lab', icon: Sparkles },
+  { to: '/admin/training', label: 'AI Training Studio', icon: Brain },
   { to: '/admin/garments', label: 'Garment Library', icon: BookOpen },
   { to: '/admin/team', label: 'Team', icon: Users },
 ]

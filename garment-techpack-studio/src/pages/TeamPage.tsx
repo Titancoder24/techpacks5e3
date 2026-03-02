@@ -20,7 +20,7 @@ export default function TeamPage() {
         </button>
       </div>
 
-      <div className="rounded-[24px] border border-border/30 bg-card backdrop-blur-3xl overflow-hidden">
+      <div className="rounded-[24px] border border-border/30 bg-card overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="border-b border-border/30">

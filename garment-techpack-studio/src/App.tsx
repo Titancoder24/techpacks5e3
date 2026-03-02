@@ -3,6 +3,7 @@ import DashboardLayout from "@/layouts/DashboardLayout"
 import UserLayout from "@/layouts/UserLayout"
 import Overview from "@/pages/Overview"
 import AIGenerator from "@/pages/admin/AIGenerator"
+import AITrainingStudio from "@/pages/admin/AITrainingStudio"
 import StyleVault from "@/pages/user/StyleVault"
 import TechPackEditor from "@/pages/user/TechPackEditor"
 import Approvals from "@/pages/user/Approvals"
@@ -226,6 +227,7 @@ function App() {
         <Route index element={<Navigate to="/admin/overview" replace />} />
         <Route path="overview" element={<Overview />} />
         <Route path="generator" element={<AIGenerator />} />
+        <Route path="training" element={<AITrainingStudio />} />
         <Route path="garments" element={<GarmentLibrary />} />
         <Route path="team" element={<TeamPage />} />
       </Route>

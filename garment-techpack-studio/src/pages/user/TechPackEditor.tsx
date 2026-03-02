@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { toast, Toaster } from 'sonner'
 import {
   ArrowLeft, Save, Share2, Sun, Moon, Upload, Plus, Trash2,
-  FileText, Copy, CheckCircle2
+  FileText, Copy, CheckCircle2, Sparkles, Loader2, ChevronDown, Send
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -17,6 +17,7 @@ import {
   STITCH_TYPES, GARMENT_CATEGORIES, ANIMATION_REGISTRY,
 } from '@/lib/garment-registry'
 import { exportTechPackPDF } from '@/lib/pdf-export'
+import { chatWithAI } from '@/lib/gemini'
 import { calculateSizeGrading } from '@/lib/pricing'
 import StyleChat from '@/components/collaboration/StyleChat'
 import Timeline from '@/components/editor/Timeline'
@@ -39,6 +40,11 @@ export default function TechPackEditor() {
   const [activeTab, setActiveTab] = useState('garments')
   const [garmentFilter, setGarmentFilter] = useState('All')
   const [refreshChat, setRefreshChat] = useState(0)
+  const [aiMessages, setAiMessages] = useState<{role: 'user' | 'ai', text: string}[]>([])
+  const [aiInput, setAiInput] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiOpen, setAiOpen] = useState(true)
+  const aiScrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -86,6 +92,56 @@ export default function TechPackEditor() {
     const updated = [...tp.bom]
     updated[idx] = { ...updated[idx], [field]: value }
     update({ bom: updated })
+  }
+
+  const sendAiMessage = async () => {
+    const message = aiInput.trim()
+    if (!message || aiLoading) return
+    setAiInput('')
+    setAiMessages(prev => [...prev, { role: 'user', text: message }])
+    setAiLoading(true)
+
+    try {
+      const context = [
+        `Style Name: ${tp.styleName}`,
+        `Style Number: ${tp.styleNumber}`,
+        `Garment Type: ${tp.garmentType}`,
+        `Fabric ID: ${tp.fabricId}`,
+        `Pantone Code: ${tp.pantoneCode || 'not set'}`,
+        `Fabric Color: ${tp.fabricColor || 'not set'}`,
+        `Stitch Type: ${tp.stitchType}`,
+        `Seam Allowance: ${tp.seamAllowance} cm`,
+        `Measurements: ${JSON.stringify(tp.measurements)}`,
+        `BOM (${tp.bom.length} items): ${JSON.stringify(tp.bom)}`,
+        `Construction Notes: ${tp.constructionNotes || 'none'}`,
+        `Status: ${tp.status}`,
+      ].join('\n')
+
+      const response = await chatWithAI(message, context)
+
+      const jsonMatch = response.match(/<json>([\s\S]*?)<\/json>/)
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1])
+          update(parsed)
+          toast.success('AI applied changes')
+        } catch {
+          // JSON parse failed -- just show the text
+        }
+        const cleanText = response.replace(/<json>[\s\S]*?<\/json>/g, '').trim()
+        setAiMessages(prev => [...prev, { role: 'ai', text: cleanText || 'Changes applied to your tech pack.' }])
+      } else {
+        setAiMessages(prev => [...prev, { role: 'ai', text: response }])
+      }
+    } catch (err) {
+      setAiMessages(prev => [...prev, { role: 'ai', text: 'Sorry, something went wrong. Please try again.' }])
+      toast.error('AI request failed')
+    } finally {
+      setAiLoading(false)
+      setTimeout(() => {
+        aiScrollRef.current?.scrollTo({ top: aiScrollRef.current.scrollHeight, behavior: 'smooth' })
+      }, 50)
+    }
   }
 
   const cost = calculateGarmentCost(tp)
@@ -419,66 +475,136 @@ export default function TechPackEditor() {
 
         {/* RIGHT SIDEBAR */}
         <aside className="w-[320px] border-l border-border/50 flex flex-col overflow-hidden shrink-0">
-          <div className="p-4 space-y-3 border-b border-border/50">
-            <button
-              onClick={handleExportPDF}
-              className="w-full rounded-2xl font-black uppercase tracking-widest text-[11px] bg-green-600 text-white px-4 py-3 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2"
-            >
-              <FileText className="w-4 h-4" /> Export PDF
-            </button>
-            <button
-              onClick={handleCopyShareLink}
-              className="w-full rounded-2xl font-black uppercase tracking-widest text-[11px] bg-muted/50 text-foreground px-4 py-2.5 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2"
-            >
-              <Copy className="w-3.5 h-3.5" /> Copy Share Link
-            </button>
-          </div>
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4 space-y-3 border-b border-border/50">
+              <button
+                onClick={handleExportPDF}
+                className="w-full rounded-2xl font-black uppercase tracking-widest text-[11px] bg-green-600 text-white px-4 py-3 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <FileText className="w-4 h-4" /> Export PDF
+              </button>
+              <button
+                onClick={handleCopyShareLink}
+                className="w-full rounded-2xl font-black uppercase tracking-widest text-[11px] bg-muted/50 text-foreground px-4 py-2.5 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <Copy className="w-3.5 h-3.5" /> Copy Share Link
+              </button>
+            </div>
 
-          <div className="p-4 border-b border-border/50">
-            <p className="text-[10px] uppercase font-black tracking-[0.3em] opacity-30 mb-3">Approval Workflow</p>
-            <div className="space-y-1.5">
-              {APPROVAL_STAGES.map((s, idx) => (
-                <button
-                  key={s.id}
-                  onClick={() => handleStatusChange(s.id)}
-                  className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all text-left text-xs',
-                    tp.status === s.id ? 'bg-primary/10 font-bold' : 'hover:bg-muted/30'
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={cn('w-2.5 h-2.5 rounded-full', tp.status === s.id && 'ring-2 ring-offset-1 ring-offset-background')}
-                      style={{ backgroundColor: s.hex, boxShadow: tp.status === s.id ? `0 0 8px ${s.hex}50` : undefined }}
-                    />
-                    {idx > 0 && <div className="absolute left-[22px] -top-1.5 w-px h-1.5 bg-border/30" />}
+            <div className="p-4 border-b border-border/50">
+              <p className="text-[10px] uppercase font-black tracking-[0.3em] opacity-30 mb-3">Approval Workflow</p>
+              <div className="space-y-1.5">
+                {APPROVAL_STAGES.map((s, idx) => (
+                  <button
+                    key={s.id}
+                    onClick={() => handleStatusChange(s.id)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all text-left text-xs',
+                      tp.status === s.id ? 'bg-primary/10 font-bold' : 'hover:bg-muted/30'
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={cn('w-2.5 h-2.5 rounded-full', tp.status === s.id && 'ring-2 ring-offset-1 ring-offset-background')}
+                        style={{ backgroundColor: s.hex, boxShadow: tp.status === s.id ? `0 0 8px ${s.hex}50` : undefined }}
+                      />
+                      {idx > 0 && <div className="absolute left-[22px] -top-1.5 w-px h-1.5 bg-border/30" />}
+                    </div>
+                    <span>{s.label}</span>
+                    {tp.status === s.id && <CheckCircle2 className="w-3.5 h-3.5 ml-auto" style={{ color: s.hex }} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 border-b border-border/50">
+              <p className="text-[10px] uppercase font-black tracking-[0.3em] opacity-30 mb-3">Size Grading</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {sizeGrading.map(s => (
+                  <div key={s.size} className="rounded-xl bg-muted/30 p-2 text-center">
+                    <p className="text-[9px] font-bold opacity-50">{s.size}</p>
+                    <p className="text-[10px] font-bold">Rs.{s.cost}</p>
                   </div>
-                  <span>{s.label}</span>
-                  {tp.status === s.id && <CheckCircle2 className="w-3.5 h-3.5 ml-auto" style={{ color: s.hex }} />}
-                </button>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="p-4 border-b border-border/50">
-            <p className="text-[10px] uppercase font-black tracking-[0.3em] opacity-30 mb-3">Size Grading</p>
-            <div className="grid grid-cols-4 gap-1.5">
-              {sizeGrading.map(s => (
-                <div key={s.size} className="rounded-xl bg-muted/30 p-2 text-center">
-                  <p className="text-[9px] font-bold opacity-50">{s.size}</p>
-                  <p className="text-[10px] font-bold">Rs.{s.cost}</p>
+            {/* AI Assistant */}
+            <div className="border-b border-border/50">
+              <button
+                onClick={() => setAiOpen(!aiOpen)}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/20 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-primary" />
+                  <p className="text-[10px] uppercase font-black tracking-[0.3em] opacity-30">AI Assistant</p>
                 </div>
-              ))}
+                <ChevronDown className={cn('w-3.5 h-3.5 opacity-30 transition-transform', aiOpen && 'rotate-180')} />
+              </button>
+              {aiOpen && (
+                <div className="px-4 pb-4 flex flex-col">
+                  <div
+                    ref={aiScrollRef}
+                    className="h-[200px] overflow-y-auto rounded-2xl bg-card border border-border/30 p-3 space-y-2 mb-3"
+                  >
+                    {aiMessages.length === 0 && (
+                      <p className="text-[10px] text-muted-foreground text-center mt-16">
+                        Ask the AI to help edit your tech pack.
+                      </p>
+                    )}
+                    {aiMessages.map((msg, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          'max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed',
+                          msg.role === 'user'
+                            ? 'ml-auto bg-primary text-primary-foreground'
+                            : 'mr-auto bg-muted text-foreground'
+                        )}
+                      >
+                        {msg.text}
+                      </div>
+                    ))}
+                    {aiLoading && (
+                      <div className="mr-auto bg-muted rounded-2xl px-3 py-2 flex items-center gap-2">
+                        <Loader2 className="w-3 h-3 animate-spin opacity-50" />
+                        <span className="text-[10px] text-muted-foreground">Thinking...</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={aiInput}
+                      onChange={(e) => setAiInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendAiMessage()}
+                      placeholder="Ask AI to edit tech pack..."
+                      className="flex-1 rounded-2xl bg-muted/30 border-none px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    <button
+                      onClick={sendAiMessage}
+                      disabled={aiLoading || !aiInput.trim()}
+                      className={cn(
+                        'p-2.5 rounded-2xl transition-all',
+                        aiInput.trim() && !aiLoading
+                          ? 'bg-primary text-primary-foreground hover:scale-105 active:scale-95'
+                          : 'bg-muted/30 text-muted-foreground opacity-50 cursor-not-allowed'
+                      )}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
 
-          <div className="flex-1 overflow-hidden">
-            <StyleChat
-              techPackId={tp.id}
-              messages={TechPackService.getById(tp.id)?.messages || tp.messages || []}
-              onMessageSent={() => setRefreshChat(prev => prev + 1)}
-              className="h-full"
-            />
+            <div className="min-h-[300px]">
+              <StyleChat
+                techPackId={tp.id}
+                messages={TechPackService.getById(tp.id)?.messages || tp.messages || []}
+                onMessageSent={() => setRefreshChat(prev => prev + 1)}
+                className="h-full"
+              />
+            </div>
           </div>
         </aside>
       </div>
